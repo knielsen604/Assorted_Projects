@@ -1,0 +1,123 @@
+---
+title: "World Suicide Trends"
+author: "Kimberly Nielsen"
+date: "10/23/2019"
+output: html_document
+---
+
+```{rsetup, include=FALSE}
+library(knitr)
+install.packages("ggplot2",dependencies=TRUE)
+library(ggplot2)
+install.packages("ggExtra",dependencies=TRUE)
+library(ggExtra)
+library(varhandle)
+library(dplyr)
+knitr::opts_chunk$set(include = FALSE)
+knitr::knit_engines$set("Rscript")
+```
+
+Load unemployment data.
+
+```{r, echo=TRUE}
+ALL.Suicides <- read.csv("master.csv")
+```
+
+Create vectors representing the mean population size per country (popul1), mean suicide rate per 100K citizens (mean1), and GDP per capita (GDP1) for each country in the most recent year available.
+
+```{r echo=TRUE, warning=FALSE}
+max.year <- NULL
+popul1 <- NULL
+mean1 <- NULL
+GDP1 <- NULL
+female.rate <- NULL
+male.rate <- NULL
+for(i in 1:101){
+  country1 <- levels(ALL.Suicides$country)[i]
+  max.year[i] <- max(ALL.Suicides$year[ALL.Suicides$country == country1])
+  popul1[i] <- mean(ALL.Suicides$population[ALL.Suicides$country == country1 & ALL.Suicides$year == max.year[i]])
+  mean1[i] <- mean(ALL.Suicides$suicides.100k.pop[ALL.Suicides$country == country1 & ALL.Suicides$year == max.year[i]])
+  GDP1[i] <- mean(ALL.Suicides$gdp_per_capita....[ALL.Suicides$country == country1 & ALL.Suicides$year == max.year[i]])
+}
+
+popul1 <- sapply(popul1, function(z) round(z,digits=2))
+mean1 <- sapply(mean1, function(z) round(z,digits=2))
+```
+
+Put everything into a new dataframe. Shift columns to the left in order to make row names = country names.
+
+```{r}
+country1 <- levels(ALL.Suicides$country)
+Combined.Data <- data.frame("Country"=country1,"Most Recent Year"=max.year,"Suicide Rate (per 100K)"=mean1,"Population Size"=popul1,"GDP per Capita"=GDP1)
+Combined.Data <- data.frame(Combined.Data[,-1], row.names=Combined.Data[,1])
+```
+
+Creates a new entity containing suicide rates per country for all age groups.
+
+```{r echo=TRUE}
+Age.Categories <- list("5-14 years"=NULL,"15-24 years"=NULL,"25-34 years"=NULL,"35-54 years"=NULL,"55-74 years"=NULL,"75+ years"=NULL)
+for(i in 1:101){
+  country1 <- levels(ALL.Suicides$country)[i]
+  max.year[i] <- max(ALL.Suicides$year[ALL.Suicides$country == country1])
+  for(z in 1:6){
+    Age.Categories[[z]][i] <- max(ALL.Suicides$suicides.100k.pop[ALL.Suicides$country == country1 & ALL.Suicides$year == max.year[i] & ALL.Suicides$age == ALL.Suicides$age[z]])
+  }
+}
+
+#Creates a dataframe representing the contents of the list Age.Categories.
+Age.Country <-NULL
+Age.Country <- data.frame(matrix(unlist(Age.Categories),nrow=101,ncol=6))
+
+country1 <- format(levels(ALL.Suicides$country))
+rownames(Age.Country) <- country1
+colnames(Age.Country) <- levels(ALL.Suicides$age)
+```
+
+I noticed that the suicide rate per 100K citizens was the same in almost all "15-24 years" and "35-54 years" (as well as others). To make it easier to perform the 'which.max' function shown below, I am going to take the new mean of an expanded set of age groups. For this reason, I also removed the age group "5-14" in lieu of the identical "75+" age group.
+
+```{r include=FALSE, warning=FALSE}
+Combined.Data$"15-34 years old" <- rowMeans(Age.Country[,1:2])
+Combined.Data$"35-54 years old" <- Age.Country[,3]
+Combined.Data$"55-74 years old" <- Age.Country[,5]
+Combined.Data$"75+ years old" <- Age.Country[,6]
+```
+
+Now, to do some additional data cleaning.
+
+```{r}
+#Creates a column ('Max.Age.Group') representing the maximum suicide rate for each country, based on age group.
+Combined.Data$Max.Age.Group <- apply(Combined.Data[5:8], 1, max)
+
+#Remove countries with Max.Age.Group==0, since they don't include data based on age group.
+Combined.Data <- Combined.Data[!(Combined.Data[,9]=="0"),]
+
+#Creates a column ('Which.Age.Group') representing which age group features the highest suicide rate per 100K citizens.
+Combined.Data$Which.Age.Group <- apply(Combined.Data[5:8],1,function(z) names(which.max(z)))
+```
+
+Visualizations! First, Plot #1 gives an overview of the relationships between different data.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+Plot_1 <- ggplot2::ggplot(Combined.Data) + ggplot2::ylim(1,50) + ggplot2::geom_point(data=Combined.Data,ggplot2::aes(x=GDP.per.Capita,y=Suicide.Rate..per.100K.,colour=Which.Age.Group,size=Population.Size,alpha=I(0.6))) + ggplot2::ggtitle("Suicide Rate (per 100K Citizens) vs. GDP per Capita") + ggplot2::xlab("GDP per Capita") + ggplot2::ylab("Suicide Rate (per 100K Citizens)") + ggplot2::labs(colour="Age Group with Highest Suicide Rate",size="Population Size") + ggplot2::geom_smooth(ggplot2::aes(x=GDP.per.Capita,y=Suicide.Rate..per.100K.,colour=Which.Age.Group),fill=NA) 
+
+plot(Plot_1)
+```
+
+Plot #2 is a histogram depicting the proportion of deaths in each age group, as well as the number of countries with each proportion.
+
+```{r echo=FALSE}
+Plot_2 <- ggplot2::ggplot(data=Combined.Data,ggplot2::aes(x=Suicide.Rate..per.100K.,color=Which.Age.Group))+ggplot2::geom_histogram(binwidth=5,ggplot2::aes(fill=Which.Age.Group),color="Black")+ggplot2::ylab("# of Countries")+ggplot2::xlab("Suicide Rate (per 100K Citizens)") +  ggplot2::ggtitle("Proportion of Suicides in Each Age Group") +  ggplot2::labs(fill="Age Groups")
+plot(Plot_2)
+```
+
+Plot #3 depicts the median and variance of suicide rates (per 100K citizens) for each age group.
+
+```{r echo=FALSE, warning=F}
+Age.Groups <- Combined.Data[,5:8]
+Age.Groups <- matrix(unlist(Age.Groups),nrow=94,ncol=4)
+colnames(Age.Groups) <- names(Combined.Data[,5:8])
+
+Age.Groups.2 <- stack(as.data.frame(Age.Groups))
+Plot_3 <-  ggplot2::ggplot(Age.Groups.2,  ggplot2::aes(x=ind,y=values,colour=ind)) +  ggplot2::geom_jitter() +  ggplot2::geom_boxplot(alpha=0.90,outlier.color = "black",) +  ggplot2::ylim(1,100) +  ggplot2::ggtitle("Suicide Rate (per 100K Citizens) by Age Group") +  ggplot2::xlab("") +  ggplot2::ylab("Suicide Rate (per 100K Citizens)") +  ggplot2::labs(colour="Age Groups")
+plot(Plot_3)
+```
