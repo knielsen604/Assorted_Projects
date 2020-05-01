@@ -1,0 +1,89 @@
+---
+title: "California Unemployment Rate: Longitudinal Data"
+author: "Kimberly Nielsen"
+date: "10/22/2019"
+output: html_document
+---
+
+```{rsetup, include=FALSE}
+library(knitr)
+library(ggplot2)
+library(varhandle)
+library(TSA)
+library(dplyr)
+
+knitr::opts_chunk$set(include = FALSE)
+knitr::knit_engines$set("Rscript")
+```
+```{r}
+DAT <- read.csv("Local Unemployment.csv") %>% #Load unemployment data.
+        .[complete.cases(.),] #Get rid of NAs.
+        
+DAT$Unemployment.Rate <- ((DAT$Unemployment/DAT$Labor.Force)*100) #Expressed as a percentage
+DAT$Employment.Rate <- 100 - DAT$Unemployment.Rate
+DAT$Month <- factor(DAT$Month, levels = c("January", "February", "March", "April", "May", "June","July","August","September","October","November","December"))
+```
+```{r echo=TRUE, warning=FALSE} ## Working with county-level data only
+DAT_Counties <- as.data.frame(DAT[DAT$Area.Type=="County",]) #Select county-level data
+
+for(i in 1:21063){  #Creates monthly average for the state.
+  DAT_Counties$Month_Ave[i] <- ave(DAT_Counties$Unemployment.Rate[DAT_Counties$Year == DAT_Counties$Year[i] & DAT_Counties$Month==DAT_Counties$Month[i]])}
+  DAT_Counties$Year_Ave[i] <- ave(DAT_Counties$Month_Ave[DAT_Counties$Year == DAT_Counties$Year[i]])}
+  DAT_Counties$County_Ave[i] <- ave(DAT_Counties$Unemployment.Rate[DAT_Counties$Year == DAT_Counties$Year[i] & DAT_Counties$Area.Name==DAT_Counties$Area.Name[i]])}
+}
+```
+
+```{r echo=FALSE, warning=FALSE} ## Data Visualization
+#To start, let's see how average yearly unemployment rates have changed over time.
+DAT_Counties$Year <- as.factor(DAT_Counties$Year)
+
+Plot_1 <- ggplot2::ggplot(DAT_Counties) + ggplot2::geom_boxplot(ggplot2::aes(x=Year,y=Year_Ave)) + ggplot2::geom_point(ggplot2::aes(x=Year,y=Year_Ave)) + ggplot2::theme_linedraw() + ggplot2::ggtitle(label="Average Unemployment Rate per Year, for All Time (1990 to 2019)") + ggplot2::ylab("Unemployment Rate") + ggplot2::scale_x_discrete(breaks=seq(1990,2020,5)) + ggplot2::annotate("rect",xmin=0,xmax=31,ymin=0,ymax=7.84,fill="grey",alpha=0.4,label="Median Unemployment") + ggplot2::annotate("text",x=3,y=7.3,color="black",label="Median Unemployment",size=3)
+plot(Plot_1)
+
+Plot_2a <- ggplot2::ggplot(data=DAT_Counties, ggplot2::aes(x=Month, Month_Ave),na.rm=T) + ggplot2::geom_jitter(ggplot2::aes(x=Month,y=DAT_Counties$Month_Ave),height=0.1, width=1, size=0.08,alpha=0.5, color="grey",show.legend = T) + ggplot2::geom_boxplot(outlier.fill = NA, fill="grey", alpha=0.3) + ggplot2::theme_linedraw() + ggplot2::ggtitle(label="Average Unemployment Rate by Month, for All Time (1990 to 2019)") + ggplot2::ylab("Unemployment Rate")
+plot(Plot_2a)
+
+#More specifically, find the monthly variation in unemployment by year.
+Plot_2a <- ggplot2::ggplot(data=DAT_Counties, ggplot2::aes(x=Month,y=Month_Ave),na.rm=T) + ggplot2::geom_boxplot(outlier.alpha = 0, fill= "grey") + ggplot2::facet_wrap(~Year,nrow=3) + ggplot2::theme_bw() + ggplot2::ggtitle(label="Average Unemployment Rate by Month, for All Time (1990 to 2019)") + ggplot2::ylab("Unemployment Rate") +  ggplot2::scale_x_discrete("Month",labels=c("J","F","M","A","M","J","J","A","S","O","N","D"))
+plot(Plot_2a)
+
+#Monthly variation sorted by county. Plot 3 depicts monthly unemployment, by individual counties, in the year 2018.
+Plot_3 <- ggplot2::ggplot(DAT_Counties[DAT_Counties$Year=="2018",]) + ggplot2::geom_point(ggplot2::aes(x=Month,y=Unemployment.Rate,color=Region, size=Labor.Force, alpha=0.3),show.legend = T, na.rm=T) + ggplot2::geom_boxplot(ggplot2::aes(x=Month,y=Unemployment.Rate), alpha=0.3,show.legend = F) + ggplot2::ggtitle("Unemployment Rate per County (in 2018)") + ggplot2::ylab("Unemployment Rate")
+plot(Plot_3)
+```
+```{r eval=FALSE, include=FALSE} ## Choropleth Graphs
+#In order to create a choropleth graph, perform preliminary steps for plot creation.
+DAT_Counties$Area.Name <- gsub(pattern=" County",replacement="",x=DAT_Counties$Area.Name)
+DAT_Counties$Area.Name <- casefold(DAT_Counties$Area.Name, upper = FALSE)
+colnames(DAT_Counties)[2] <- "subregion"
+
+#Next, create the basis for the graph.
+CA_Coordinates <- ggplot2::map_data("county", "California")
+CA_base <- ggplot2::ggplot(CA_Coordinates, ggplot2::aes(x = long, y = lat, group = group)) + ggplot2::geom_polygon(color = "white", fill = "gray")
+CA_Counties_Data <- dplyr::inner_join(CA_Coordinates, DAT_Counties, by="subregion")
+
+State_Plot_Creator <- function(year){
+  plot_name <- CA_base + geom_polygon(CA_Counties_Data[CA_Counties_Data$Year==as.character(year),], ggplot2::aes(fill = County_Ave),show.legend = T) + 
+  geom_polygon(color="black",fill=NA,show.legend = F,size=0.1) + 
+  theme_bw() + scale_fill_gradientn(colours = rev(rainbow(5)))
+}
+
+Plot_4 <- CA_base + ggplot2::geom_polygon(data = CA_Counties_Data, ggplot2::aes(fill = County_Ave), show.legend = T) + ggplot2::geom_polygon(color="black",fill=NA, show.legend = F, size=0.1) + ggplot2::theme_bw() + ggplot2::scale_fill_gradientn(colours = rev(rainbow(5))) + ggplot2::facet_wrap(~Year, nrow=3) + ggplot2::labs(x="",y="",fill="Average \nUnemployment \nRate") + ggplot2::theme(axis.text.x=ggplot2::element_blank(), axis.text.y=ggplot2::element_blank())
+plot(Plot_4)
+```
+```{r} #Attempt Fourier Analysis for monthly data
+TS_1 <- periodogram(DAT_Counties$Employment.Rate, log = "yes")
+
+FOOP <- cbind.data.frame(TS_1$freq, TS_1$spec) %>%
+FOOP[head(order(-FOOP$`TS_1$spec`), 10),]
+
+FOOP$days <- round(1/FOOP$`TS_1$freq`,1) #These are represented as days.
+FOOP$days[1:3]/365 #The strongest is at 29.6 years; the second-higest is at 59 days; the third-highest is at 19.72 years. I think I'll stick with the first three.
+```
+```{r warning=FALSE} ## Resources & functions to explore
+#stl()
+#decompose()
+#https://anomaly.io/detect-seasonality-using-fourier-transform-r/index.html
+#http://r-statistics.co/Time-Series-Analysis-With-R.html
+#https://a-little-book-of-r-for-time-series.readthedocs.io/en/latest/src/timeseries.html
+```
