@@ -1,0 +1,65 @@
+---
+title: "CTC Client Charts"
+author: "Kimberly Nielsen"
+date: "11/2019"
+output:
+  html_document: default
+---
+
+#Data loading and summarization:
+CTC_Data <- read.csv(file.choose())
+str(CTC_Data)
+summary(CTC_Data) 
+
+#Preliminary data cleaning:
+#Splits "entry date" and "birthday" columns up by month and year.
+CTC_Data$Entry.Date <- gsub("-", "-/-", CTC_Data$Entry.Date)
+CTC_Data$Birthday <- gsub("-", "-/-", CTC_Data$Birthday)
+
+CTC_Data[,21:22] <- str_split_fixed(CTC_Data$Entry.Date, "/", 2)
+CTC_Data[,23:24] <- str_split_fixed(CTC_Data$Birthday, "/", 2)
+CTC_Data <- CTC_Data[,c(1:5,7:9,11:24)]
+
+#Filters clients by age at entry.
+for(i in 1:40){
+  if(CTC_Data$V22[i] == "-"){
+    CTC_Data$Age[i] <- 5}
+  else if(as.numeric(CTC_Data$V21[i]) > as.numeric(CTC_Data$V23[i])){
+    CTC_Data$Age[i] <- (as.numeric(CTC_Data$V22[i])-as.numeric(CTC_Data$V24[i])+1)}
+  else{CTC_Data$Age[i] <- as.numeric(CTC_Data$V22[i])-as.numeric(CTC_Data$V24[i])}
+}
+
+CTC_Data <- sapply(CTC_Data, function(x) gsub("-", "Unspecified", x)) %>% #Changes "-" to "Unspecified".
+            as.data.frame(CTC_Data)
+
+Age_filter <- filter(CTC_Data, CTC_Data$Minor=="N") #Creates new dataset for adults only.
+Drug_filter <- as.data.frame(Age_filter$Current.Drug.Use) %>% #Breaks "types of drugs" into separate categories
+               filter(Drug_filter, `Age_filter$Current.Drug.Use` != "Unspecified") %>%
+               separate_rows(Drug_filter, `Age_filter$Current.Drug.Use`)
+
+##Visualizations:
+#Plot for previously-used drugs.
+Drug_filter$`Age_filter$Current.Drug.Use` <- factor(Drug_filter$`Age_filter$Current.Drug.Use`, levels = c("None", "Caffeine", "Tobacco", "Alcohol", "Weed", "Amphetamine"))
+plot_1 <- ggplot(Drug_filter, aes(x=`Age_filter$Current.Drug.Use`)) + 
+  geom_bar(aes(fill=`Age_filter$Current.Drug.Use`),color="Black",size=0.1) + xlab("") + ylab("Number of Clients") + 
+  labs(title="Drugs Used by Clients Upon Admission", subtitle = "Does not include historical drug use prior to admission.", fill="Drugs") +
+  scale_fill_brewer(palette="YlOrBr") + theme_light() #+ geom_text(aes(y = `Age_filter$Current.Drug.Use`), color = "black")
+plot_1
+
+#Plot for racial distribution:
+race_vector <- as.data.frame(summary(CTC_Data$Race)) %>%
+               cbind("Race"=rownames_to_column(.), "Proportions"=format((as.numeric(.$`summary(CTC_Data$Race)`)/34)*100,digits = 2))
+colnames(race_vector) <- c("Race","Number","Percentage")
+
+plot_2 <- ggplot(race_vector, aes(x="",y=Proportions)) + geom_bar(aes(fill=Race.rowname), color="white", stat="identity") + 
+          coord_polar("y") + scale_fill_brewer(palette="YlGn") + theme_void() + labs(title="Racial Makeup of Clients", fill="Race")
+plot_2
+
+#Plot for income source:
+income_vector <- as.data.frame(summary(CTC_Data$Income.Source.Upon.Entry)) %>%
+                 cbind("Income Source"=rownames_to_column(income_vector), "Proportions"=format((as.numeric(income_vector$`summary(CTC_Data$Income.Source.Upon.Entry)`)/34)*100,digits = 2))
+colnames(income_vector) <- c("Income Source", "Number", "Percentage")
+  
+plot_3 <- ggplot(income_vector, aes(x="",y=Percentage)) + geom_bar(aes(fill=`Income Source`), color="white", stat="identity") + 
+          coord_polar("y") + scale_fill_brewer(palette="BuPu") + theme_void() + labs(title="Client Income Source Upon Admission",fill="Income Source\nUpon Admission")
+plot_3
